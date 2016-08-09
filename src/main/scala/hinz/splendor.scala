@@ -2,11 +2,34 @@ package hinz
 
 import collection.immutable.Map
 
+import cats._
+import cats.syntax.all._
+// import cats.std.all._
+import cats.implicits._
+
 package object splendor {
+
+  implicit def mapGroup[K,V](implicit g: Group[V]): Group[Map[K,V]] =
+    new Group[Map[K,V]] {
+      def inverse(m: Map[K,V]) =
+        m.mapValues(g.inverse)
+
+      def empty = Map.empty[K,V]
+
+      def combine(m1: Map[K, V], m2: Map[K, V]): Map[K, V] =
+        (m1.keys ++ m2.keys)
+          .toSet
+          .foldLeft(Map.empty[K,V]) { (newMap, k) =>
+          newMap + (k -> g.combine(m1.getOrElse(k, g.empty), m2.getOrElse(k, g.empty)))
+        }
+    }
 
   sealed trait GameError
   case object TooManyPlayers extends GameError
   case object TooFewPlayers extends GameError
+  case object OutOfOrderPlay extends GameError
+  case class InvalidTokenSelection(msg: String) extends GameError
+  case class OutOfTokens(t: Set[Color]) extends GameError
 
   sealed trait Color
   case object Green extends Color
@@ -16,23 +39,94 @@ package object splendor {
   case object Red extends Color
   case object Gold extends Color
 
-  sealed trait CardType
-  case object Tier1 extends CardType
-  case object Tier2 extends CardType
-  case object Tier3 extends CardType
+  sealed trait Tier
+  case object Tier1 extends Tier
+  case object Tier2 extends Tier
+  case object Tier3 extends Tier
 
   type TokenSet = Map[Color, Int]
   type CardSeq = Seq[Card]
 
   case class Noble(points: Int, cost: TokenSet)
-  case class Card(cardType: CardType, points: Int, bonus: Color, cost: TokenSet)
+  case class Card(cardType: Tier, points: Int, bonus: Color, cost: TokenSet)
 
   case class Player(tokens: TokenSet, cards: Seq[Card], unplayedCards: Seq[Card])
   case class Game(
     tokens: TokenSet,
-    decks: Map[CardType, CardSeq],
+    decks: Map[Tier, CardSeq],
     nobles: Seq[Noble],
     players: Seq[Player])
+
+  sealed trait Action extends Function2[Game, Player, Either[GameError, Game]] {
+    def executeStep(g: Game, p: Player): Either[GameError, (Game, Player)]
+
+    def rotatePlayers(g: Game, p: Player) =
+      g.copy(players=g.players.tail :+ p)
+
+    def combine(t1: TokenSet, t2: TokenSet): Either[GameError, TokenSet] = {
+      val newTokens = Semigroup.combine(t1, t2)
+      val negativeTokens = newTokens
+        .filter(_._2 < 0)
+        .map(_._1)
+        .toSet
+
+      if (negativeTokens.size > 0)
+        Left(OutOfTokens(negativeTokens))
+      else
+        Right(newTokens)
+    }
+
+
+    def apply(g: Game, p: Player) =
+      if (g.players.headOption == Some(p))
+        for (s <- executeStep(g, p).right)
+        yield s match {
+          case (g, p) => rotatePlayers(g, p)
+        }
+      else
+        Left(OutOfOrderPlay)
+  }
+
+  trait TokenAction extends Action {
+    def updateTokens(tokenMap: Map[Color, Int], g: Game, p: Player) =
+      for (
+        newGameTokens <- combine(Group.inverse(tokenMap), g.tokens).right ;
+        newPlayerTokens <- combine(tokenMap, p.tokens).right) yield
+        (g.copy(tokens=newGameTokens), p.copy(tokens=newPlayerTokens))
+  }
+
+  case class SelectThreeTokens(tokens: Set[Color]) extends TokenAction {
+    val tokenMap = tokens
+      .map((_, 1))
+      .toMap
+
+    def executeStep(g: Game, p: Player) =
+      if (tokens.size != 3)
+        Left(InvalidTokenSelection("Must select 3 different tokens"))
+      else
+        updateTokens(tokenMap, g, p)
+
+  }
+
+  case class SelectTwoTokens(color: Color) extends TokenAction {
+    def executeStep(g: Game, p: Player) =
+      if (g.tokens.getOrElse(color, 0) < 4)
+        Left(InvalidTokenSelection("Not enought left after double"))
+      else
+        updateTokens(Map(color -> 2), g, p)
+  }
+
+  case class PlayCard(card: Card) extends Action {
+    def executeStep(g: Game, p: Player) = ???
+  }
+
+  case class SelectFaceUpCard(card: Card) extends Action {
+    def executeStep(g: Game, p: Player) = ???
+  }
+
+  case class SelectFaceDownCard(tier: Tier) extends Action {
+    def executeStep(g: Game, p: Player) = ???
+  }
 
   object Game {
     val standardTokens: TokenSet = Map(Green -> 7, Blue -> 7, Brown -> 7, White -> 7, Red -> 7, Gold -> 5)
