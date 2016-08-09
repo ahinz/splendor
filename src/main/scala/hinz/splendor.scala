@@ -25,10 +25,12 @@ package object splendor {
     }
 
   sealed trait GameError
+  case object CantPickupGold extends GameError
   case object TooManyPlayers extends GameError
   case object TooFewPlayers extends GameError
   case object HiddenCardLimit extends GameError
   case object OutOfOrderPlay extends GameError
+  case object FourTokensRequired extends GameError
   case class InvalidTokenSelection(msg: String) extends GameError
   case class OutOfTokens(t: Set[Color]) extends GameError
   case class NotEnoughTokensToBuyCard(c: Card) extends GameError
@@ -73,11 +75,8 @@ package object splendor {
       copy(decks=decks.mapValues(_.filterNot(_ == c)))
   }
 
-  sealed trait Action extends Function2[Game, Player, Either[GameError, Game]] {
+  sealed trait Action extends Function2[Game, Player, Either[GameError, (Game, Player)]] {
     def executeStep(g: Game, p: Player): Either[GameError, (Game, Player)]
-
-    def rotatePlayers(g: Game, p: Player) =
-      g.copy(players=g.players.tail :+ p)
 
     def validateTokens(t: TokenSet): Either[GameError, TokenSet] = {
       val negativeTokens = t
@@ -93,10 +92,7 @@ package object splendor {
 
     def apply(g: Game, p: Player) =
       if (g.players.headOption == Some(p))
-        for (s <- executeStep(g, p).right)
-        yield s match {
-          case (g, p) => rotatePlayers(g, p)
-        }
+        executeStep(g, p)
       else
         Left(OutOfOrderPlay)
   }
@@ -115,7 +111,9 @@ package object splendor {
       .toMap
 
     def executeStep(g: Game, p: Player) =
-      if (tokens.size != 3)
+      if (tokens.contains(Gold))
+        Left(CantPickupGold)
+      else if (tokens.size > 3)
         Left(InvalidTokenSelection("Must select 3 different tokens"))
       else
         updateTokens(tokenMap, g, p)
@@ -124,8 +122,10 @@ package object splendor {
 
   case class SelectTwoTokens(color: Color) extends TokenAction {
     def executeStep(g: Game, p: Player) =
-      if (g.tokens.getOrElse(color, 0) < 4)
-        Left(InvalidTokenSelection("Not enought left after double"))
+      if (color == Gold)
+        Left(CantPickupGold)
+      else if (g.tokens.getOrElse(color, 0) < 4)
+        Left(FourTokensRequired)
       else
         updateTokens(Map(color -> 2), g, p)
   }
@@ -205,6 +205,8 @@ package object splendor {
   }
 
   object Game {
+    val initialPlayer = Player(Map.empty, Seq.empty, Seq.empty)
+
     val standardTokens: TokenSet = Map(Green -> 7, Blue -> 7, Brown -> 7, White -> 7, Red -> 7, Gold -> 5)
 
     val threePlayerTokens = standardTokens.map {
