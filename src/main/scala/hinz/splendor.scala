@@ -3,9 +3,9 @@ package hinz
 import collection.immutable.Map
 
 import cats._
-import cats.syntax.all._
-// import cats.std.all._
-import cats.implicits._
+import cats.std.all._
+import cats.syntax.group._
+//import cats.implicits._
 
 package object splendor {
 
@@ -27,9 +27,12 @@ package object splendor {
   sealed trait GameError
   case object TooManyPlayers extends GameError
   case object TooFewPlayers extends GameError
+  case object HiddenCardLimit extends GameError
   case object OutOfOrderPlay extends GameError
   case class InvalidTokenSelection(msg: String) extends GameError
   case class OutOfTokens(t: Set[Color]) extends GameError
+  case class NotEnoughTokensToBuyCard(c: Card) extends GameError
+  case class CardNotInPlay(c: Card) extends GameError
 
   sealed trait Color
   case object Green extends Color
@@ -48,14 +51,27 @@ package object splendor {
   type CardSeq = Seq[Card]
 
   case class Noble(points: Int, cost: TokenSet)
-  case class Card(cardType: Tier, points: Int, bonus: Color, cost: TokenSet)
+  case class Card(cardType: Tier, points: Int, bonus: Color, cost: TokenSet) {
+    val bonusPower = Map(bonus -> 1)
+  }
 
-  case class Player(tokens: TokenSet, cards: Seq[Card], unplayedCards: Seq[Card])
+  case class Player(tokens: TokenSet, cards: Seq[Card], unplayedCards: Seq[Card]) {
+    val bonusPower = cards
+      .map(_.bonusPower)
+      .fold(Monoid[TokenSet].empty)(Monoid.combine _)
+  }
+
   case class Game(
     tokens: TokenSet,
     decks: Map[Tier, CardSeq],
     nobles: Seq[Noble],
-    players: Seq[Player])
+    players: Seq[Player]) {
+
+    val cardsInPlay = decks.flatMap(_._2.take(4)).toSeq
+
+    def discard(c: Card) =
+      copy(decks=decks.mapValues(_.filterNot(_ == c)))
+  }
 
   sealed trait Action extends Function2[Game, Player, Either[GameError, Game]] {
     def executeStep(g: Game, p: Player): Either[GameError, (Game, Player)]
@@ -63,9 +79,8 @@ package object splendor {
     def rotatePlayers(g: Game, p: Player) =
       g.copy(players=g.players.tail :+ p)
 
-    def combine(t1: TokenSet, t2: TokenSet): Either[GameError, TokenSet] = {
-      val newTokens = Semigroup.combine(t1, t2)
-      val negativeTokens = newTokens
+    def validateTokens(t: TokenSet): Either[GameError, TokenSet] = {
+      val negativeTokens = t
         .filter(_._2 < 0)
         .map(_._1)
         .toSet
@@ -73,9 +88,8 @@ package object splendor {
       if (negativeTokens.size > 0)
         Left(OutOfTokens(negativeTokens))
       else
-        Right(newTokens)
+        Right(t)
     }
-
 
     def apply(g: Game, p: Player) =
       if (g.players.headOption == Some(p))
@@ -90,8 +104,8 @@ package object splendor {
   trait TokenAction extends Action {
     def updateTokens(tokenMap: Map[Color, Int], g: Game, p: Player) =
       for (
-        newGameTokens <- combine(Group.inverse(tokenMap), g.tokens).right ;
-        newPlayerTokens <- combine(tokenMap, p.tokens).right) yield
+        newGameTokens <- validateTokens(g.tokens |-| tokenMap).right ;
+        newPlayerTokens <- validateTokens(tokenMap |+| p.tokens).right) yield
         (g.copy(tokens=newGameTokens), p.copy(tokens=newPlayerTokens))
   }
 
@@ -116,16 +130,78 @@ package object splendor {
         updateTokens(Map(color -> 2), g, p)
   }
 
-  case class PlayCard(card: Card) extends Action {
-    def executeStep(g: Game, p: Player) = ???
+  case class PlayCard(card: Card) extends TokenAction {
+    def discardFromBoard(g: Game, c: Card) = g.discard(c)
+    def discardFromPlayer(p: Player, c: Card) = p.copy(unplayedCards=p.unplayedCards.filterNot(_ == c))
+
+    def executeStep(g: Game, p: Player) =
+      if (g.cardsInPlay.contains(card))
+        buyCard(discardFromBoard(g, card), p)
+      else if (p.unplayedCards.contains(card))
+        buyCard(g, discardFromPlayer(p, card))
+      else
+        Left(CardNotInPlay(card))
+
+    def buyCard(g: Game, p: Player) = {
+      val costAfterBonus = (card.cost |-| p.bonusPower).mapValues(c => Math.max(0, c))
+      val gameTokensAfterCost = g.tokens |+| costAfterBonus
+
+      val playerTokensAfterCost = p.tokens |-| costAfterBonus
+      val additionalTokens = playerTokensAfterCost.values.filter(_ < 0).sum
+
+      val goldTokens = p.tokens.getOrElse(Gold, 0)
+
+      if (goldTokens > additionalTokens) {
+        val goldTokensRequired: TokenSet = Map(Gold -> (goldTokens - additionalTokens))
+        val playerTokensAfterGolds = playerTokensAfterCost.mapValues(c => Math.max(0, c)) |-| goldTokensRequired
+        val gameTokensAfterGolds = gameTokensAfterCost |+| goldTokensRequired
+
+        Right((
+          g.copy(tokens=gameTokensAfterGolds),
+          p.copy(
+            tokens=playerTokensAfterGolds,
+            cards=p.cards :+ card)))
+      } else
+        Left(NotEnoughTokensToBuyCard(card))
+    }
   }
 
-  case class SelectFaceUpCard(card: Card) extends Action {
-    def executeStep(g: Game, p: Player) = ???
+  trait CardAction extends Action {
+    def takeCard(g: Game, p: Player, card: Option[Card]) = {
+      val (gameTokensAfterGold, playerTokensAfterGold) =
+        if (g.tokens.getOrElse(Gold, 0) > 0)
+          (g.tokens |-| Map(Gold -> 1), p.tokens |+| Map(Gold -> 1))
+        else
+          (g.tokens, p.tokens)
+
+      Right(
+        g.copy(tokens=gameTokensAfterGold),
+        p.copy(
+          unplayedCards=p.unplayedCards ++ card,
+          tokens=playerTokensAfterGold))
+    }
   }
 
-  case class SelectFaceDownCard(tier: Tier) extends Action {
-    def executeStep(g: Game, p: Player) = ???
+  case class SelectFaceUpCard(card: Card) extends CardAction {
+    def executeStep(g: Game, p: Player) =
+      if (g.cardsInPlay.contains(card))
+        takeCard(g.discard(card), p, Some(card))
+      else
+        Left(CardNotInPlay(card))
+  }
+
+  case class SelectFaceDownCard(tier: Tier) extends CardAction {
+    def executeStep(g: Game, p: Player) =
+      if (p.unplayedCards.size >= 3)
+        Left(HiddenCardLimit)
+      else
+        g.decks
+          .getOrElse(tier, Seq.empty)
+          .drop(4)
+          .headOption match {
+          case Some(card) => takeCard(g.discard(card), p, Some(card))
+          case None => takeCard(g, p, None)
+        }
   }
 
   object Game {
