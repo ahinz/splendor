@@ -61,6 +61,8 @@ package object splendor {
     val bonusPower = cards
       .map(_.bonusPower)
       .fold(Monoid[TokenSet].empty)(Monoid.combine _)
+
+    def addTokens(t: TokenSet) = copy(tokens=tokens |+| t)
   }
 
   case class Game(
