@@ -139,3 +139,71 @@ class TakeCardSpec extends FlatSpec with Matchers {
     e should be(HiddenCardLimit)
   }
 }
+
+class PlayCardSpec extends FlatSpec with Matchers {
+
+  //TODO: factor out this code into parent
+  val limitedTokens: TokenSet = Map(Red -> 5, Blue -> 1, Green -> 3, Brown -> 0, Gold -> 2)
+  val player = Game.initialPlayer
+  val players = Seq(player)
+
+  val cards = Seq(
+    Card(Tier1, 1, Red, Map(White -> 4)),
+    Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1)),
+    Card(Tier1, 0, Red, Map(White -> 2, Blue -> 1, Green -> 1, Brown -> 1)),
+    Card(Tier1, 0, Red, Map(White -> 2, Red -> 2)),
+    Card(Tier1, 0, Red, Map(White -> 3)),
+    Card(Tier1, 0, Red, Map(White -> 2, Green -> 1, Brown -> 2)),
+    Card(Tier1, 0, Red, Map(White -> 1, Red -> 1, Brown -> 3)),
+    Card(Tier1, 0, Red, Map(White -> 1, Blue -> 1, Green -> 1, Brown -> 1)))
+
+  val simpleDeck: Map[Tier, CardSeq] = Map(Tier1 -> cards)
+
+  val game = Game(limitedTokens, simpleDeck, Seq.empty, Seq(player))
+
+  "A player" should "be able to play a card from their hand" in {
+    val c1 = Card(Tier3, 1, Red, Map(White -> 4))
+
+    val player2 = player.copy(unplayedCards=Seq(c1), tokens=Map(White -> 4))
+    val game2 = game.copy(players=Seq(player2))
+
+    val Right((newGame, newPlayer)) = PlayCard(c1)(game2, player2)
+
+    newPlayer.bonusPower should be(Map(Red -> 1))
+    newPlayer.unplayedCards should be(Seq.empty)
+  }
+
+  it should "be able to play a visible card from the deck" in {
+    val aCard = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val player2 = player.copy(tokens=Map(Blue -> 3, Green -> 2))
+    val game2 = game.copy(players=Seq(player2))
+
+    val Right((newGame, newPlayer)) = PlayCard(aCard)(game2, player2)
+
+    newPlayer.tokens should be(Map(Blue -> 1, Green -> 1, Gold -> 0))
+    newPlayer.bonusPower should be(Map(Red -> 1))
+    newPlayer.unplayedCards should be(Seq.empty)
+  }
+
+  it should "be able to pay with golds if needed" in {
+    val aCard = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val player2 = player.copy(tokens=Map(Blue -> 1, Green -> 2, Gold -> 2))
+    val game2 = game.copy(players=Seq(player2))
+
+    val Right((newGame, newPlayer)) = PlayCard(aCard)(game2, player2)
+
+    newPlayer.tokens should be(Map(Blue -> 0, Green -> 1, Gold -> 1))
+    newPlayer.bonusPower should be(Map(Red -> 1))
+    newPlayer.unplayedCards should be(Seq.empty)
+  }
+
+  it should "not be able to play if they don't have enough tokens" in {
+    val aCard = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val player2 = player.copy(tokens=Map(Blue -> 1, Green -> 2))
+    val game2 = game.copy(players=Seq(player2))
+
+    val Left(a) = PlayCard(aCard)(game2, player2)
+
+    a should be(NotEnoughTokensToBuyCard(aCard))
+  }
+}

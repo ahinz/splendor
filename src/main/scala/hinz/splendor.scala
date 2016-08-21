@@ -149,12 +149,12 @@ package object splendor {
       val gameTokensAfterCost = g.tokens |+| costAfterBonus
 
       val playerTokensAfterCost = p.tokens |-| costAfterBonus
-      val additionalTokens = playerTokensAfterCost.values.filter(_ < 0).sum
+      val additionalTokens = playerTokensAfterCost.values.filter(_ < 0).sum * -1
 
       val goldTokens = p.tokens.getOrElse(Gold, 0)
 
-      if (goldTokens > additionalTokens) {
-        val goldTokensRequired: TokenSet = Map(Gold -> (goldTokens - additionalTokens))
+      if (goldTokens >= additionalTokens) {
+        val goldTokensRequired: TokenSet = Map(Gold -> additionalTokens)
         val playerTokensAfterGolds = playerTokensAfterCost.mapValues(c => Math.max(0, c)) |-| goldTokensRequired
         val gameTokensAfterGolds = gameTokensAfterCost |+| goldTokensRequired
 
