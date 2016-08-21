@@ -1,6 +1,7 @@
 package hinz
 
 import collection.immutable.Map
+import java.util.UUID
 
 import cats._
 import cats.std.all._
@@ -23,6 +24,10 @@ package object splendor {
           newMap + (k -> g.combine(m1.getOrElse(k, g.empty), m2.getOrElse(k, g.empty)))
         }
     }
+
+  sealed trait GameState
+  case class GameBeingPlayed(g: Game) extends GameState
+  case class GameWon(p: Player, g: Game) extends GameState
 
   sealed trait GameError
   case object CantPickupGold extends GameError
@@ -57,24 +62,68 @@ package object splendor {
     val bonusPower = Map(bonus -> 1)
   }
 
-  case class Player(tokens: TokenSet, cards: Seq[Card], unplayedCards: Seq[Card]) {
+  case class Player(id: UUID, tokens: TokenSet, cards: Seq[Card], unplayedCards: Seq[Card], nobles: Seq[Noble]) {
     val bonusPower = cards
       .map(_.bonusPower)
       .fold(Monoid[TokenSet].empty)(Monoid.combine _)
 
     def addTokens(t: TokenSet) = copy(tokens=tokens |+| t)
+
+    def hasBonusForNoble(n: Noble) =
+      (bonusPower |-| n.cost).filter(_._2 < 0).size == 0
+
+    val prestigePoints = cards.map(_.points).sum + nobles.map(_.points).sum
   }
 
   case class Game(
     tokens: TokenSet,
     decks: Map[Tier, CardSeq],
     nobles: Seq[Noble],
-    players: Seq[Player]) {
+    players: Seq[Player],
+    currentPlayerId: UUID) {
 
     val cardsInPlay = decks.flatMap(_._2.take(4)).toSeq
 
+    // Error if current player is not in players
+    val currentPlayer = players.filter(_.id == currentPlayerId).head
+    val nextPlayerIdx = (players.map(_.id).indexOf(currentPlayerId) + 1) % players.size
+    val nextPlayerId = players(nextPlayerIdx).id
+
     def discard(c: Card) =
       copy(decks=decks.mapValues(_.filterNot(_ == c)))
+
+    val winningPlayer = players
+      .filter(_.prestigePoints >= 15)
+      .sortBy(_.prestigePoints)
+      .reverse
+      .headOption
+
+    //TODO: Limit to 10 tokens
+    def playTurn(action: Action): Either[GameError, GameState] =
+      for (gp <- action(this, currentPlayer).right)
+      yield {
+        val (newGame, newPlayer) = gp
+
+        val (playerNobles, remainingNobles) = nobles.partition(newPlayer.hasBonusForNoble)
+
+        val newPlayers = players.map { player =>
+          if (player.id == newPlayer.id)
+            newPlayer.copy(nobles=newPlayer.nobles ++ playerNobles)
+          else
+            player
+        }
+
+        val gameForNextTurn = newGame.copy(currentPlayerId=nextPlayerId, players=newPlayers, nobles=remainingNobles)
+
+        // Check for win condition at start of turn
+        if (Some(gameForNextTurn.currentPlayerId) == gameForNextTurn.players.headOption.map(_.id))
+          gameForNextTurn.winningPlayer match {
+            case Some(p) => GameWon(p, gameForNextTurn)
+            case None => GameBeingPlayed(gameForNextTurn)
+          }
+        else
+          GameBeingPlayed(gameForNextTurn)
+      }
   }
 
   sealed trait Action extends Function2[Game, Player, Either[GameError, (Game, Player)]] {
@@ -93,7 +142,7 @@ package object splendor {
     }
 
     def apply(g: Game, p: Player) =
-      if (g.players.headOption == Some(p))
+      if (p.id == g.currentPlayerId)
         executeStep(g, p)
       else
         Left(OutOfOrderPlay)
@@ -207,7 +256,7 @@ package object splendor {
   }
 
   object Game {
-    val initialPlayer = Player(Map.empty, Seq.empty, Seq.empty)
+    val initialPlayer = Player(UUID.randomUUID, Map.empty, Seq.empty, Seq.empty, Seq.empty)
 
     val standardTokens: TokenSet = Map(Green -> 7, Blue -> 7, Brown -> 7, White -> 7, Red -> 7, Gold -> 5)
 
@@ -228,9 +277,9 @@ package object splendor {
 
     def game(players: Seq[Player]): Either[GameError, Game] =
       players.size match {
-        case 2 => Right(Game(twoPlayerTokens, baseDecks(), randomNobles(3), players))
-        case 3 => Right(Game(threePlayerTokens, baseDecks(), randomNobles(4), players))
-        case 4 => Right(Game(standardTokens, baseDecks(), randomNobles(5), players))
+        case 2 => Right(Game(twoPlayerTokens, baseDecks(), randomNobles(3), players, players.head.id))
+        case 3 => Right(Game(threePlayerTokens, baseDecks(), randomNobles(4), players, players.head.id))
+        case 4 => Right(Game(standardTokens, baseDecks(), randomNobles(5), players, players.head.id))
         case i if i < 2 => Left(TooFewPlayers)
         case _ => Left(TooManyPlayers)
       }
