@@ -1,4 +1,4 @@
-package hinz.splendor
+package hinz.splendor.game
 
 import org.scalatest._
 

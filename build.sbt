@@ -7,9 +7,9 @@ lazy val root = (project in file(".")).
       "org.typelevel" %% "cats" % "0.6.1",
       "com.typesafe.akka" %% "akka-http-experimental" % "2.4.9",
       "de.heikoseeberger" %% "akka-http-circe" % "1.9.0",
-      "io.circe" %% "circe-core" % "0.4.1",
-      "io.circe" %% "circe-generic" % "0.4.1",
-      "io.circe" %% "circe-parser" % "0.4.1",
+      "io.circe" %% "circe-core" % "0.5.0-M2",
+      "io.circe" %% "circe-generic" % "0.5.0-M2",
+      "io.circe" %% "circe-parser" % "0.5.0-M2",
       "org.scalatest" %% "scalatest" % "3.0.0" % "test",
       "com.typesafe.akka" %% "akka-http-testkit" % "2.4.9" % "test")
   )

@@ -1,4 +1,4 @@
-package hinz
+package hinz.splendor
 
 import collection.immutable.Map
 import java.util.UUID
@@ -6,9 +6,8 @@ import java.util.UUID
 import cats._
 import cats.std.all._
 import cats.syntax.group._
-//import cats.implicits._
 
-package object splendor {
+package object game {
 
   implicit def mapGroup[K,V](implicit g: Group[V]): Group[Map[K,V]] =
     new Group[Map[K,V]] {
@@ -41,18 +40,18 @@ package object splendor {
   case class NotEnoughTokensToBuyCard(c: Card) extends GameError
   case class CardNotInPlay(c: Card) extends GameError
 
-  sealed trait Color
-  case object Green extends Color
-  case object Blue extends Color
-  case object Brown extends Color
-  case object White extends Color
-  case object Red extends Color
-  case object Gold extends Color
+  sealed trait Color { val name: String }
+  case object Green extends Color { val name = "green" }
+  case object Blue extends Color { val name = "blue" }
+  case object Brown extends Color { val name = "brown" }
+  case object White extends Color { val name = "white" }
+  case object Red extends Color { val name = "red" }
+  case object Gold extends Color { val name = "gold" }
 
-  sealed trait Tier
-  case object Tier1 extends Tier
-  case object Tier2 extends Tier
-  case object Tier3 extends Tier
+  sealed trait Tier { val name: String }
+  case object Tier1 extends Tier { val name = "tier1" }
+  case object Tier2 extends Tier { val name = "tier2" }
+  case object Tier3 extends Tier { val name = "tier3" }
 
   type TokenSet = Map[Color, Int]
   type CardSeq = Seq[Card]
@@ -256,7 +255,9 @@ package object splendor {
   }
 
   object Game {
-    val initialPlayer = Player(UUID.randomUUID, Map.empty, Seq.empty, Seq.empty, Seq.empty)
+    def player(id: UUID) = Player(id, Map.empty, Seq.empty, Seq.empty, Seq.empty)
+
+    val initialPlayer = player(UUID.randomUUID)
 
     val standardTokens: TokenSet = Map(Green -> 7, Blue -> 7, Brown -> 7, White -> 7, Red -> 7, Gold -> 5)
 
