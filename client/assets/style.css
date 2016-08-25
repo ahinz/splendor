@@ -1,0 +1,144 @@
+.cards {
+    display: flex;
+    flex-flow: row;
+}
+
+.card {
+    display: flex;
+    flex-flow: column;
+
+    padding: 5px;
+    margin: 5px;
+
+    border-radius: 5px;
+    border-style: solid;
+    border-width: 1px;
+
+    width: 160px;
+}
+
+.card .title-bar {
+    display: flex;
+    flex-flow: row;
+    justify-content: space-between;
+}
+
+.card .title-bar .title {
+    display: flex;
+    align-items: center;
+}
+
+.points {
+    width: 25px;
+    height: 25px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 13px;
+
+    border-style: solid;
+    border-color: black;
+    border-width: 1px;
+
+    margin: 5px;
+    background: white;
+}
+
+.cost {
+    display: flex;
+    justify-content: space-between;
+}
+
+.cost .cost-component {
+    width: 25px;
+    height: 25px;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 13px;
+
+    border-style: solid;
+    border-color: black;
+    border-width: 1px;
+
+    margin: 5px;
+}
+
+.cost .cost-blue {
+    background: blue;
+    color: white;
+}
+
+.cost .cost-brown {
+    background: #6f2020;
+    color: white;
+}
+
+.cost .cost-red {
+    background: red;
+    color: white;
+}
+
+.cost .cost-white {
+    background: ivory;
+    color: black;
+}
+
+.cost .cost-green {
+    background: green;
+    color: white;
+}
+
+.cost .cost-gold {
+    background: gold;
+    color: black;
+}
+
+.tokens .cost-component {
+    width: 50px;
+    height: 50px;
+
+    border-radius: 26px;
+}
+
+.tokens {
+    border-style: solid;
+    border-width: 1px;
+    border-radius: 5px;
+    margin: 5px;
+    padding: 5px;
+}
+
+.tokens .cost-component {
+    font-size: 25px;
+}
+
+.card-bonus-blue {
+    background: #d4d4f5;
+}
+
+.card-bonus-brown {
+    background: #b17f7f;
+}
+
+.card-bonus-red {
+    background: #ffb9b9;
+}
+
+.card-bonus-white {
+    background: ivory;
+}
+
+.card-bonus-green {
+    background: #71c771;
+}
+
+.card-bonus-gold {
+    background: gold;
+}
+
+.action-panel {
+    display: flex;
+    flex-flow: row;
+}
