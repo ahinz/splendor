@@ -1,6 +1,7 @@
 package hinz.splendor
 
-import collection.immutable.Map
+import collection.immutable.{Map, Seq, List, Set}
+
 import java.util.UUID
 
 import cats._
@@ -272,9 +273,11 @@ package object game {
     }
 
     def randomNobles(n: Int) = util.Random.shuffle(nobles).take(n)
-    def baseDecks() = cards
-      .groupBy(_.cardType)
-      .mapValues(t => util.Random.shuffle(t))
+    def baseDecks() = {
+      cards
+        .groupBy(_.cardType)
+        .map(kv => (kv._1, util.Random.shuffle(kv._2)))
+    }
 
     def game(players: Seq[Player]): Either[GameError, Game] =
       players.size match {

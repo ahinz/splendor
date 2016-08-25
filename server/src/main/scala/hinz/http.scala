@@ -24,6 +24,11 @@ object SplendorService extends App with GameMasterService {
 
   val route = pathPrefix("gm") {
     gmRoute
+  } ~
+  pathPrefix("ui") {
+    encodeResponse {
+      getFromDirectory("../client")
+    }
   }
 
   Http().bindAndHandle(route, config.getString("http.interface"), config.getInt("http.port"))

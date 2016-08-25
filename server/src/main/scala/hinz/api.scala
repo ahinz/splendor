@@ -2,6 +2,8 @@ package hinz.splendor.api
 
 import hinz.splendor.game._
 
+import collection.immutable.{Map, Seq, List, Set}
+
 import java.util.UUID
 
 import cats._, cats.data.State, cats.std.all._
@@ -18,12 +20,12 @@ case class User(id: UUID)
 case class PendingGame(id: UUID, users: Set[User]) {
   def start() =
     for(
-      g <- Game.game(users.toSeq.map(p => Game.player(p.id))).right)
+      g <- Game.game(users.toList.map(p => Game.player(p.id))).right)
     yield GameWrapper(UUID.randomUUID, g)
 }
 
 case class GameWrapper(id: UUID, g: Game) {
-  val view = GameView(id, g.tokens, g.decks.mapValues(_.take(4)), g.nobles, g.players.map(_.id), g.currentPlayerId)
+  def view = GameView(id, g.tokens, g.decks.mapValues(_.take(4)), g.nobles, g.players.map(_.id), g.currentPlayerId)
 }
 
 case class GameView(
@@ -44,6 +46,10 @@ object JsonImplicits {
 
   implicit def tokenEncoder(implicit e: Encoder[Map[String, Int]]): Encoder[TokenSet] = new Encoder[TokenSet] {
     def apply(t: TokenSet) = Json.fromFields(t.map { kv => (kv._1.name, Json.fromInt(kv._2)) })
+  }
+
+  implicit def mapEncoder(implicit v: Encoder[GameView]): Encoder[Map[String, Seq[GameView]]] = new Encoder[Map[String, Seq[GameView]]] {
+    def apply(t: Map[String, Seq[GameView]]) = Json.fromFields( t.map { kv => (kv._1, Json.fromValues(kv._2.map(v.apply))) } )
   }
 }
 
@@ -75,9 +81,9 @@ class InMemoryDao extends GameDao {
     yield createGame(game)
   }
 
-  def users() = allUsers.toSeq
-  def pendingGames() = allPendingGames.values.toSeq
-  def games() = allGames.values.toSeq
+  def users() = allUsers.toList
+  def pendingGames() = allPendingGames.values.toList
+  def games() = allGames.values.toList
 
   def updatePendingGame(p: PendingGame) = {
     allPendingGames += (p.id -> p) ; p
@@ -126,6 +132,17 @@ trait GameMasterService extends CirceSupport with Service {
     }
   } ~
   withAuth { user =>
+    pathPrefix("active-game") {
+      get {
+        complete {
+          val games = dao.games
+            .filter(_.g.players.map(_.id).contains(user.id))
+            .map(_.view)
+
+          Map("games" -> games)
+        }
+      }
+    } ~
     pathPrefix("pending") {
       pathPrefix(JavaUUID) { id =>
         path("start") {
