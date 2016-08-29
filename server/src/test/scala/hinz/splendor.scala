@@ -1,5 +1,7 @@
 package hinz.splendor.game
 
+import collection.immutable.{Map, Seq, List, Set}
+
 import org.scalatest._
 
 import java.util.UUID
@@ -24,14 +26,14 @@ class UtilSpec extends FlatSpec with Matchers {
 
 trait TestingGame {
   val cards = Seq(
-    Card(Tier1, 1, Red, Map(White -> 4)),
-    Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1)),
-    Card(Tier1, 0, Red, Map(White -> 2, Blue -> 1, Green -> 1, Brown -> 1)),
-    Card(Tier1, 0, Red, Map(White -> 2, Red -> 2)),
-    Card(Tier1, 0, Red, Map(White -> 3)),
-    Card(Tier1, 0, Red, Map(White -> 2, Green -> 1, Brown -> 2)),
-    Card(Tier1, 0, Red, Map(White -> 1, Red -> 1, Brown -> 3)),
-    Card(Tier1, 0, Red, Map(White -> 1, Blue -> 1, Green -> 1, Brown -> 1)))
+    card(Tier1, 1, Red, Map(White -> 4)),
+    card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1)),
+    card(Tier1, 0, Red, Map(White -> 2, Blue -> 1, Green -> 1, Brown -> 1)),
+    card(Tier1, 0, Red, Map(White -> 2, Red -> 2)),
+    card(Tier1, 0, Red, Map(White -> 3)),
+    card(Tier1, 0, Red, Map(White -> 2, Green -> 1, Brown -> 2)),
+    card(Tier1, 0, Red, Map(White -> 1, Red -> 1, Brown -> 3)),
+    card(Tier1, 0, Red, Map(White -> 1, Blue -> 1, Green -> 1, Brown -> 1)))
 
   val simpleDeck: Map[Tier, CardSeq] = Map(Tier1 -> cards)
 
@@ -86,12 +88,12 @@ class TakeTokensSpec extends FlatSpec with Matchers with TestingGame {
 class TakeCardSpec extends FlatSpec with Matchers with TestingGame {
 
   "The face up selection" should "be able to selected the top card" in {
-    val card = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val aCard = cards(1)
 
-    val Right((newGame, newPlayer)) = SelectFaceUpCard(card)(game, player)
+    val Right((newGame, newPlayer)) = SelectFaceUpCard(aCard)(game, player)
 
-    player.unplayedCards.contains(card) should be(false)
-    newPlayer.unplayedCards.contains(card) should be(true)
+    player.unplayedCards.contains(aCard) should be(false)
+    newPlayer.unplayedCards.contains(aCard) should be(true)
 
     player.bonusPower should be(Map.empty)
     newPlayer.bonusPower should be(Map.empty)
@@ -101,24 +103,24 @@ class TakeCardSpec extends FlatSpec with Matchers with TestingGame {
   }
 
   it should "not be able to buy the card if the card isn't in the top 4" in {
-    val card = Card(Tier1, 0, Red, Map(White -> 3))
+    val aCard = cards(4)
 
-    val Left(c) = SelectFaceUpCard(card)(game, player)
+    val Left(c) = SelectFaceUpCard(aCard)(game, player)
 
-    c should be(CardNotInPlay(card))
+    c should be(CardNotInPlay(aCard))
   }
 
   it should "only give gold if available" in {
-    val card = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val aCard = cards(1)
 
     val game2 = game.copy(tokens=Map.empty)
-    val Right((newGame, newPlayer)) = SelectFaceUpCard(card)(game2, player)
+    val Right((newGame, newPlayer)) = SelectFaceUpCard(aCard)(game2, player)
 
     newPlayer.tokens.get(Gold) should be(None)
   }
 
   "The face-down selection" should "select a card" in {
-    val tgtCard = Card(Tier1, 0, Red, Map(White -> 3))
+    val tgtCard = cards(4)
 
     val Right((newGame, newPlayer)) = SelectFaceDownCard(Tier1)(game, player)
 
@@ -127,9 +129,9 @@ class TakeCardSpec extends FlatSpec with Matchers with TestingGame {
   }
 
   "Selecting more than three cards" should "be an error" in {
-    val c1 = Card(Tier1, 1, Red, Map(White -> 4))
-    val c2 = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
-    val c3 = Card(Tier1, 0, Red, Map(White -> 2, Blue -> 1, Green -> 1, Brown -> 1))
+    val c1 = cards(0)
+    val c2 = cards(1)
+    val c3 = cards(2)
 
     val player2 = player.copy(unplayedCards=Seq(c1, c2, c3))
     val game2 = game.copy(players=Seq(player2))
@@ -143,7 +145,7 @@ class TakeCardSpec extends FlatSpec with Matchers with TestingGame {
 class PlayCardSpec extends FlatSpec with Matchers with TestingGame {
 
   "A player" should "be able to play a card from their hand" in {
-    val c1 = Card(Tier3, 1, Red, Map(White -> 4))
+    val c1 = card(Tier3, 1, Red, Map(White -> 4))
 
     val player2 = player.copy(unplayedCards=Seq(c1), tokens=Map(White -> 4))
     val game2 = game.copy(players=Seq(player2))
@@ -156,7 +158,7 @@ class PlayCardSpec extends FlatSpec with Matchers with TestingGame {
   }
 
   it should "be able to play a visible card from the deck" in {
-    val aCard = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val aCard = cards(1)
     val player2 = player.copy(tokens=Map(Blue -> 3, Green -> 2))
     val game2 = game.copy(players=Seq(player2))
 
@@ -169,7 +171,7 @@ class PlayCardSpec extends FlatSpec with Matchers with TestingGame {
   }
 
   it should "be able to pay with golds if needed" in {
-    val aCard = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val aCard = cards(1)
     val player2 = player.copy(tokens=Map(Blue -> 1, Green -> 2, Gold -> 2))
     val game2 = game.copy(players=Seq(player2))
 
@@ -181,7 +183,7 @@ class PlayCardSpec extends FlatSpec with Matchers with TestingGame {
   }
 
   it should "not be able to play if they don't have enough tokens" in {
-    val aCard = Card(Tier1, 0, Red, Map(Blue -> 2, Green -> 1))
+    val aCard = cards(1)
     val player2 = player.copy(tokens=Map(Blue -> 1, Green -> 2))
     val game2 = game.copy(players=Seq(player2))
 
@@ -191,18 +193,17 @@ class PlayCardSpec extends FlatSpec with Matchers with TestingGame {
   }
 }
 
-//TODO: Test nobles
 //TODO: Test 10 tokens max
 class GameSpec extends FlatSpec with Matchers {
     val cards = Seq(
-      Card(Tier1, 1, Red, Map(White -> 3)),
-      Card(Tier1, 2, White, Map(Blue -> 2, Green -> 1)),
-      Card(Tier1, 3, Blue, Map(White -> 2, Blue -> 1, Red -> 1)),
-      Card(Tier1, 5, Green, Map(White -> 2, Red -> 2)),
-      Card(Tier1, 8, Red, Map(White -> 3)),
-      Card(Tier1, 10, Blue, Map(White -> 2, Green -> 1, Brown -> 2)),
-      Card(Tier1, 13, Red, Map(White -> 1, Red -> 1, Brown -> 3)),
-      Card(Tier1, 15, Red, Map(White -> 1, Blue -> 1, Green -> 1, Brown -> 1)))
+      card(Tier1, 1, Red, Map(White -> 3)),
+      card(Tier1, 2, White, Map(Blue -> 2, Green -> 1)),
+      card(Tier1, 3, Blue, Map(White -> 2, Blue -> 1, Red -> 1)),
+      card(Tier1, 5, Green, Map(White -> 2, Red -> 2)),
+      card(Tier1, 8, Red, Map(White -> 3)),
+      card(Tier1, 10, Blue, Map(White -> 2, Green -> 1, Brown -> 2)),
+      card(Tier1, 13, Red, Map(White -> 1, Red -> 1, Brown -> 3)),
+      card(Tier1, 15, Red, Map(White -> 1, Blue -> 1, Green -> 1, Brown -> 1)))
 
   val simpleDeck: Map[Tier, CardSeq] = Map(Tier1 -> cards)
 
@@ -229,18 +230,18 @@ class GameSpec extends FlatSpec with Matchers {
     // Player 2 selects RWB
     val Right(GameBeingPlayed(game3)) = game2.playTurn(SelectThreeTokens(Set(Red, Blue, White)))
 
-    val p1Card = Card(Tier1, 2, White, Map(Blue -> 2, Green -> 1))
+    val p1Card = cards(1)
 
     // Player 1 plays a face up card (one red bonus)
     val Right(GameBeingPlayed(game4)) = game3.playTurn(PlayCard(p1Card))
 
-    val p2Card = Card(Tier1, 1, Red, Map(White -> 3))
+    val p2Card = cards(0)
 
     // Player 2 gets a red bonus
     val Right(GameBeingPlayed(game5)) = game4.playTurn(PlayCard(p2Card))
 
     // Player 1 takes a face up card into their hand
-    val p1Card2 = Card(Tier1, 10, Blue, Map(White -> 2, Green -> 1, Brown -> 2))
+    val p1Card2 = cards(5)
 
     val Right(GameBeingPlayed(game6)) = game5.playTurn(SelectFaceUpCard(p1Card2))
 
@@ -256,7 +257,7 @@ class GameSpec extends FlatSpec with Matchers {
     // Player 1 plays a face down card
     val Right(GameBeingPlayed(game10)) = game9.playTurn(PlayCard(p1Card2))
 
-    val p2Card2 = Card(Tier1, 3, Blue, Map(White -> 2, Blue -> 1, Red -> 1))
+    val p2Card2 = cards(2)
 
     // Player 2 plays a card from the table
     // but player 1 wins the game at the end of the turn
