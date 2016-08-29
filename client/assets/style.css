@@ -17,6 +17,13 @@
     width: 160px;
 }
 
+.empty-card {
+    padding: 5px;
+    margin: 5px;
+
+    width: 162px;
+}
+
 .card .title-bar {
     display: flex;
     flex-flow: row;

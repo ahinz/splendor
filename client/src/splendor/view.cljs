@@ -18,17 +18,22 @@
                    qty])
                 cost)))
 
-(defn render-card [i {:keys [points bonus cost cardType]}]
+(defn render-card [{:keys [on-click]} i {:keys [points bonus cost cardType] :as card}]
   [:div.card {:key i
-              :class (str "card-bonus-" bonus)}
+              :class (str "card-bonus-" bonus)
+              :on-click #(call-handler on-click card)}
    [:div.title-bar
     [:div.points points]
     [:div.title "Tier " (last cardType)]]
    (render-cost {} cost)])
 
-(defn render-deck [cards]
+(defn render-deck [events cards selected-card?]
   (concatv [:div.cards]
-           (map-indexed render-card cards)))
+           (map-indexed (fn [i card]
+                          (if (selected-card? card)
+                            [:div.empty-card]
+                            (render-card events i card)))
+                        cards)))
 
 (defn render-noble [i {:keys [points cost]}]
   [:div.card {:key i}
@@ -44,6 +49,11 @@
 (defn token-action [tokens]
   (render-cost {} (remove (comp zero? second) tokens)))
 
+(defn face-up-card-action [{:keys [tokens card]}]
+  [:div
+   (token-action tokens)
+   (render-card {} 0 card)])
+
 (defn render-action [{:keys [on-reset]} {:keys [title type flash] :as action}]
   [:div.action
    (when flash
@@ -54,12 +64,20 @@
     title]
    (condp = type
      :tokens (token-action (:tokens action))
+     :face-up-card (face-up-card-action action)
      [:div "No Action Selected"])])
 
 ;;TODO: Players should show face up cards they have
 
 (defn game-view [game-cursor action-cursor event-chan]
   (let [{:keys [tokens decks nobles players]} @game-cursor
+
+        card-click-handler (fn [card]
+                             (put! event-chan {:type :select-face-up-card
+                                               :card card}))
+
+        selected-card? (set (when (= :face-up-card (:type @action-cursor))
+                              [(:card @action-cursor)]))
 
         tokens-selected-handler (fn [color]
                                   (put! event-chan {:type :select-token
@@ -75,9 +93,18 @@
                 (map-indexed render-noble nobles)])
       [:div.action-panel
        [:div.decks
-        (render-deck (:tier1 decks))
-        (render-deck (:tier2 decks))
-        (render-deck (:tier3 decks))]
+        (render-deck
+         {:on-click card-click-handler}
+         (:tier1 decks)
+         selected-card?)
+        (render-deck
+         {:on-click card-click-handler}
+         (:tier2 decks)
+         selected-card?)
+        (render-deck
+         {:on-click card-click-handler}
+         (:tier3 decks)
+         selected-card?)]
        [:div.actions
         (render-action
          {:on-reset reset-handler}
