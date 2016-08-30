@@ -11,6 +11,8 @@ import de.heikoseeberger.akkahttpcirce._
 
 import io.circe._
 import io.circe.generic.auto._
+import io.circe.generic.semiauto._
+
 
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server._
@@ -21,36 +23,100 @@ case class PendingGame(id: UUID, users: Set[User]) {
   def start() =
     for(
       g <- Game.game(users.toList.map(p => Game.player(p.id))).right)
-    yield GameWrapper(UUID.randomUUID, g)
+    yield GameWrapper(UUID.randomUUID, g, None)
 }
 
-case class GameWrapper(id: UUID, g: Game) {
-  def view = GameView(id, g.tokens, g.decks.mapValues(_.take(4)), g.nobles, g.players.map(_.id), g.currentPlayerId)
+case class ApiAction(
+  actionType: String,
+  cardId: Option[UUID],
+  tokens: Option[TokenSet],
+  tier: Option[Int]) {
+
+  def tokenAction(tso: Option[TokenSet]): Either[String, Action] = tso match {
+    case Some(ts) => {
+      val tsWithoutZeros = ts.filter(_._2 > 0)
+      val colors = tsWithoutZeros.keys.toSet
+      val doubles = tsWithoutZeros.filter(_._2 == 2)
+
+      if (doubles.size == 1)
+        Right(SelectTwoTokens(doubles.keys.head))
+      else if (colors.size == 3)
+        Right(SelectThreeTokens(colors))
+      else
+        Left("Invalid token action")
+    }
+    case None => Left("Invalid token action")
+  }
+
+  def intToTier(t: Option[Int]) = t match {
+    case Some(1) => Right(SelectFaceDownCard(Tier1))
+    case Some(2) => Right(SelectFaceDownCard(Tier2))
+    case Some(3) => Right(SelectFaceDownCard(Tier3))
+    case Some(t) => Left(s"Invalid tier $t")
+    case None => Left("Tier not specified")
+  }
+
+  def faceUpCardAction(c: Option[Card]) = c match {
+    case Some(c) => Right(SelectFaceUpCard(c))
+    case None => Left("Card not found")
+  }
+
+  def action(idToCard: Map[UUID, Card]): Either[String, Action] = actionType match {
+    case "tokens" => tokenAction(tokens)
+    case "face-down-card" => intToTier(tier)
+    case "face-up-card" => faceUpCardAction(cardId.flatMap(idToCard.get _))
+    case at => Left(s"Invalid action $at")
+  }
+  // PlayCard,
+}
+
+
+case class GameWrapper(id: UUID, g: Game, winner: Option[UUID]) {
+  def view = GameView(id, g.tokens, g.decks.mapValues(_.take(4)), g.nobles, g.players.map(_.id), g.currentPlayerId, winner)
 }
 
 case class GameView(
-  gameId: UUID, tokens: TokenSet, decks: Map[Tier, CardSeq], nobles: Seq[Noble], players: Seq[UUID], currentPlayerId: UUID)
+  gameId: UUID, tokens: TokenSet, decks: Map[Tier, CardSeq], nobles: Seq[Noble],
+  players: Seq[UUID], currentPlayerId: UUID, winner: Option[UUID])
 
 object JsonImplicits {
+  implicit val colorKeyDecoder: KeyDecoder[Color] = new KeyDecoder[Color] {
+    def apply(c: String) = c match {
+      case "green" => Some(Green)
+      case "blue" => Some(Blue)
+      case "brown" => Some(Brown)
+      case "white" => Some(White)
+      case "red" => Some(Red)
+      case "gold" => Some(Gold)
+      case _ => None
+    }
+  }
+
+  implicit val actionDecoder: Decoder[ApiAction] = deriveDecoder[ApiAction]
+
   implicit val colorEncoder: Encoder[Color] = new Encoder[Color] {
     def apply(c: Color) = Json.fromString(c.name)
+  }
+
+  implicit val colorKeyEncoder: KeyEncoder[Color] = new KeyEncoder[Color] {
+    def apply(c: Color) = c.name
   }
 
   implicit val tierEncoder: Encoder[Tier] = new Encoder[Tier] {
     def apply(t: Tier) = Json.fromString(t.name)
   }
 
-  implicit def deckEncoder(implicit e: Encoder[Map[String, Seq[Card]]]): Encoder[Map[Tier, CardSeq]] = new Encoder[Map[Tier, CardSeq]] {
-    def apply(m: Map[Tier, CardSeq]) = e(m.map { kv => (kv._1.name, kv._2) })
+  implicit val tierKeyEncoder: KeyEncoder[Tier] = new KeyEncoder[Tier] {
+    def apply(t: Tier) = t.name
   }
 
-  implicit def tokenEncoder(implicit e: Encoder[Map[String, Int]]): Encoder[TokenSet] = new Encoder[TokenSet] {
-    def apply(t: TokenSet) = Json.fromFields(t.map { kv => (kv._1.name, Json.fromInt(kv._2)) })
-  }
+  implicit val gvEncoder: Encoder[GameView] = deriveEncoder[GameView]
+  implicit val gvLEncoder: Encoder[List[GameView]] = new ArrayEncoder[List[GameView]] {
+    final def encodeArray(a: List[GameView]) = a.map(gvEncoder(_))
 
-  implicit def mapEncoder(implicit v: Encoder[GameView]): Encoder[Map[String, Seq[GameView]]] = new Encoder[Map[String, Seq[GameView]]] {
-    def apply(t: Map[String, Seq[GameView]]) = Json.fromFields( t.map { kv => (kv._1, Json.fromValues(kv._2.map(v.apply))) } )
   }
+  implicit val mapEncoder: Encoder[Map[String, List[GameView]]] = Encoder.encodeMapLike[Map, String, List[GameView]]
+
 }
 
 trait GameDao {
@@ -132,41 +198,65 @@ trait GameMasterService extends CirceSupport with Service {
     }
   } ~
   withAuth { user =>
+    pathPrefix("game" / JavaUUID / "play") { gameId =>
+      put {
+        entity(as[ApiAction]) { apiAction =>
+
+          val gameStatus: Either[String, GameView] = dao.games.filter(_.id == gameId).headOption match {
+            case Some(gw@GameWrapper(_, game, _)) => apiAction.action(game.cardsById) match {
+              case Left(err) => Left(err)
+              case Right(action) => if (game.currentPlayerId == user.id) {
+                game.playTurn(action) match {
+                  case Left(ge) => Left(ge.toString)
+                  case Right(GameBeingPlayed(g)) => Right(dao.updateGame(gw.copy(g=g)).view)
+                  case Right(GameWon(p, g)) => Right(dao.updateGame(gw.copy(g=g, winner=Some(p.id))).view)
+                }
+              } else {
+                Left(s"Out of order play (current player is ${game.currentPlayerId})")
+              }
+            }
+            case None => Left("Game not found")
+          }
+
+          complete(gameStatus.fold(
+            e => HttpResponse(StatusCodes.BadRequest, entity = e.toString),
+            s => s))
+
+        }
+      }
+    } ~
     pathPrefix("active-game") {
       get {
         complete {
           val games = dao.games
             .filter(_.g.players.map(_.id).contains(user.id))
             .map(_.view)
+            .toList
 
           Map("games" -> games)
         }
       }
     } ~
-    pathPrefix("pending") {
-      pathPrefix(JavaUUID) { id =>
-        path("start") {
-          post {
-            complete {
-              dao.pendingGames.filter(_.id == id).headOption match {
-                case None => HttpResponse(StatusCodes.NotFound)
-                case Some(pendingGame) => {
-                  dao.startGame(pendingGame) match {
-                    case Right(gw) => gw.view
-                    case Left(ge) => HttpResponse(StatusCodes.BadRequest, entity = ge.toString)
-                  }
-                }
+    pathPrefix("pending" / JavaUUID / "start") { id =>
+      post {
+        complete {
+          dao.pendingGames.filter(_.id == id).headOption match {
+            case None => HttpResponse(StatusCodes.NotFound)
+            case Some(pendingGame) => {
+              dao.startGame(pendingGame) match {
+                case Right(gw) => gw.view
+                case Left(ge) => HttpResponse(StatusCodes.BadRequest, entity = ge.toString)
               }
             }
           }
-        } ~
-        put {
-          complete {
-            dao.pendingGames.filter(_.id == id).headOption match {
-              case None => HttpResponse(StatusCodes.NotFound)
-              case Some(pendingGame) =>
-                dao.updatePendingGame(pendingGame.copy(users=pendingGame.users + user))
-            }
+        }
+      } ~
+      put {
+        complete {
+          dao.pendingGames.filter(_.id == id).headOption match {
+            case None => HttpResponse(StatusCodes.NotFound)
+            case Some(pendingGame) =>
+              dao.updatePendingGame(pendingGame.copy(users=pendingGame.users + user))
           }
         }
       }

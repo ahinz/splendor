@@ -25,7 +25,7 @@ package object game {
         }
     }
 
-  sealed trait GameState
+  sealed trait GameState { val g: Game }
   case class GameBeingPlayed(g: Game) extends GameState
   case class GameWon(p: Player, g: Game) extends GameState
 
@@ -83,6 +83,7 @@ package object game {
     currentPlayerId: UUID) {
 
     val cardsInPlay = decks.flatMap(_._2.take(4)).toSeq
+    val cardsById = cardsInPlay.groupBy(_.id).mapValues(_.head)
 
     // Error if current player is not in players
     val currentPlayer = players.filter(_.id == currentPlayerId).head
@@ -126,7 +127,7 @@ package object game {
       }
   }
 
-  sealed trait Action extends Function2[Game, Player, Either[GameError, (Game, Player)]] {
+  sealed trait Action {
     def executeStep(g: Game, p: Player): Either[GameError, (Game, Player)]
 
     def validateTokens(t: TokenSet): Either[GameError, TokenSet] = {
@@ -141,7 +142,7 @@ package object game {
         Right(t)
     }
 
-    def apply(g: Game, p: Player) =
+    def apply(g: Game, p: Player): Either[GameError, (Game, Player)] =
       if (p.id == g.currentPlayerId)
         executeStep(g, p)
       else
