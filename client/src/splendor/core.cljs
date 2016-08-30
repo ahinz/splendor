@@ -8,8 +8,8 @@
 
 (defn app [model event-chan]
   [:div
-   [:div {:on-click #(api/start-game! "00000000-0000-0000-0000-000000000003")} "Start Game"]
-   [:div {:on-click #(api/init!)} "Check for games"]
+   (when (nil? (:gameId (:active-game @model)))
+     [:button {:on-click #(api/start-game! "00000000-0000-0000-0000-000000000003")} "Start Game"])
    [:div
     [view/game-view
      (r/cursor model [:error])
