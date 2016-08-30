@@ -20,4 +20,27 @@
         resp-ch (http/post (str gm-url "/pending/" pending-game-id "/start") {:headers {"authorization" user-id}})]
     (go
       (let [{:keys [body status]} (<! resp-ch)]
-        (println (clj->js body))))))
+        (swap! model assoc :active-game body)))))
+
+(def tier-to-level {:tier1 1, :tier2 2, :tier3 3})
+
+(defn send-action! [game-id {:keys [type card tokens tier]}]
+  (let [action (merge
+                {:actionType type}
+                (when card
+                  {:cardId (:id card)})
+                (when (and tokens (nil? card) (nil? tier))
+                  {:tokens tokens})
+                (when tier
+                  {:tier (tier-to-level tier)}))
+        user-id (get-in @model [:user-state :id])
+        resp-ch (http/put (str gm-url "/game/" game-id "/play")
+                          {:json-params action
+                           :headers {"authorization" user-id}})]
+    (go
+      (let [{:keys [body status]} (<! resp-ch)]
+        (swap! model assoc :error nil)
+        (if (= status 200)
+          (swap! model merge {:current-action {}
+                              :active-game body})
+          (swap! model assoc :error body))))))

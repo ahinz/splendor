@@ -12,6 +12,8 @@
    [:div {:on-click #(api/init!)} "Check for games"]
    [:div
     [view/game-view
+     (r/cursor model [:error])
+     (r/cursor model [:user-state])
      (r/cursor model [:active-game])
      (r/cursor model [:current-action])
      event-chan]]])
@@ -33,13 +35,21 @@
   (let [tokens (get-in @model [:current-action :tokens])]
     (doseq [[color amt] tokens]
       (transfer-token color (- amt)))
-    (swap! model assoc-in [:current-action :type] action)))
+    (swap! model assoc :current-action {:type action})))
+
+(defn transfer-gold-if-able []
+  (when (pos? (get-in @model [:active-game :tokens :gold]))
+    (transfer-token :gold 1)))
 
 (defn select-face-up-card [{:keys [card]}]
   (reset-action :face-up-card)
   (swap! model assoc-in [:current-action :card] card)
-  (when (pos? (get-in @model [:active-game :tokens :gold]))
-    (transfer-token :gold 1)))
+  (transfer-gold-if-able))
+
+(defn select-face-down-card [{:keys [tier]}]
+  (reset-action :face-down-card)
+  (swap! model assoc-in [:current-action :tier] tier)
+  (transfer-gold-if-able))
 
 (defn select-token [{:keys [color]}]
   (when (not= :tokens (get-in @model [:current-action :type]))
@@ -77,9 +87,17 @@
       :else
       (transfer-token color 1))))
 
+(defn execute-action []
+  (let [action (get @model :current-action)
+        game-id (get-in @model [:active-game :gameId])]
+    (when (and game-id action)
+      (api/send-action! game-id action))))
+
 (def event-map {:select-token select-token
                 :reset-action reset-action
-                :select-face-up-card select-face-up-card})
+                :select-face-up-card select-face-up-card
+                :select-face-down-card select-face-down-card
+                :play execute-action})
 
 (defn listen-for-events! [event-map]
   (let [event-chan (chan 3000)]

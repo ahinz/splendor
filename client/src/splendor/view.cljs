@@ -27,13 +27,18 @@
     [:div.title "Tier " (last cardType)]]
    (render-cost {} cost)])
 
-(defn render-deck [events cards selected-card?]
-  (concatv [:div.cards]
-           (map-indexed (fn [i card]
-                          (if (selected-card? card)
-                            [:div.empty-card]
-                            (render-card events i card)))
-                        cards)))
+(defn render-deck
+  [{:keys [on-card-click on-deck-click]} tier cards selected-card?]
+  [:div
+   (concatv [:div.cards
+             [:div.deck.card
+              {:on-click #(call-handler on-deck-click tier)}
+              "Level " (last (name tier)) " Deck"]] ;; ugly string handling
+            (map-indexed (fn [i card]
+                           (if (selected-card? card)
+                             [:div.empty-card]
+                             (render-card {:on-click on-card-click} i card)))
+                         cards))])
 
 (defn render-noble [i {:keys [points cost]}]
   [:div.card {:key i}
@@ -54,27 +59,43 @@
    (token-action tokens)
    (render-card {} 0 card)])
 
-(defn render-action [{:keys [on-reset]} {:keys [title type flash] :as action}]
+(defn face-down-card-action [{:keys [tokens tier]}]
+  [:div
+   (token-action tokens)
+   [:div.card
+    "Level " (last (name tier)) " card"]])
+
+(defn render-action
+  [{:keys [on-reset on-play]} {:keys [title type flash] :as action}]
   [:div.action
    (when flash
      [:div.action-flash flash])
    [:button {:on-click #(call-handler on-reset)}
     "Reset"]
+   [:button {:on-click #(call-handler on-play)}
+    "Play"]
    [:div.action-title
     title]
    (condp = type
      :tokens (token-action (:tokens action))
      :face-up-card (face-up-card-action action)
+     :face-down-card (face-down-card-action action)
      [:div "No Action Selected"])])
 
 ;;TODO: Players should show face up cards they have
 
-(defn game-view [game-cursor action-cursor event-chan]
-  (let [{:keys [tokens decks nobles players]} @game-cursor
+(defn game-view [error-cursor user-cursor game-cursor action-cursor event-chan]
+  (let [{:keys [tokens decks nobles players currentPlayerId]} @game-cursor
+
+        our-turn? (= currentPlayerId (:id @user-cursor))
 
         card-click-handler (fn [card]
                              (put! event-chan {:type :select-face-up-card
                                                :card card}))
+
+        deck-click-handler (fn [tier]
+                             (put! event-chan {:type :select-face-down-card
+                                               :tier tier}))
 
         selected-card? (set (when (= :face-up-card (:type @action-cursor))
                               [(:card @action-cursor)]))
@@ -83,8 +104,12 @@
                                   (put! event-chan {:type :select-token
                                                     :color color}))
 
+        play-handler (fn [] (put! event-chan {:type :play}))
+
         reset-handler (fn [] (put! event-chan {:type :reset-action}))]
     [:div
+     (when-let [error @error-cursor]
+       [:div.error error])
      [:div.game
       (render-tokens
        {:on-click tokens-selected-handler}
@@ -94,18 +119,27 @@
       [:div.action-panel
        [:div.decks
         (render-deck
-         {:on-click card-click-handler}
+         {:on-card-click card-click-handler
+          :on-deck-click deck-click-handler}
+         :tier1
          (:tier1 decks)
          selected-card?)
         (render-deck
-         {:on-click card-click-handler}
+         {:on-card-click card-click-handler
+          :on-deck-click deck-click-handler}
+         :tier2
          (:tier2 decks)
          selected-card?)
         (render-deck
-         {:on-click card-click-handler}
+         {:on-card-click card-click-handler
+          :on-deck-click deck-click-handler}
+         :tier3
          (:tier3 decks)
          selected-card?)]
        [:div.actions
-        (render-action
-         {:on-reset reset-handler}
-         @action-cursor)]]]]))
+        (if our-turn?
+          (render-action
+           {:on-reset reset-handler
+            :on-play play-handler}
+           @action-cursor)
+          [:div "Waiting for player " currentPlayerId])]]]]))
