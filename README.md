@@ -31,7 +31,9 @@ cd server
 sbt re-start
 ```
 
-Head over to [http://localhost:9000/ui/index.html] to start a game.
+Head over to
+[http://localhost:9000/ui/index.html](http://localhost:9000/ui/index.html)
+to start a game.
 
 ## License
 
