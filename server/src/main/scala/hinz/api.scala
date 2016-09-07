@@ -67,17 +67,30 @@ case class ApiAction(
     case "face-up-card" => faceUpCardAction(cardId.flatMap(idToCard.get _))
     case at => Left(s"Invalid action $at")
   }
-  // PlayCard,
 }
 
 
 case class GameWrapper(id: UUID, g: Game, winner: Option[UUID]) {
-  def view = GameView(id, g.tokens, g.decks.mapValues(_.take(4)), g.nobles, g.players.map(_.id), g.currentPlayerId, winner)
+  def view(playerId: UUID) = {
+    val player = g.players
+      .filter(_.id == playerId)
+      .head
+
+    val otherPlayers = g
+      .players
+      .filter(_.id != playerId)
+      .map { player => OpponentView(player.id, player.tokens, player.cards, player.unplayedCards.size, player.nobles) }
+
+    GameView(
+      id, g.tokens, g.decks.mapValues(_.take(4)), g.nobles, otherPlayers, player, g.currentPlayerId, winner)
+  }
 }
+
+case class OpponentView(id: UUID, tokens: TokenSet, cards: Seq[Card], unplayedCards: Int, nobles: Seq[Noble])
 
 case class GameView(
   gameId: UUID, tokens: TokenSet, decks: Map[Tier, CardSeq], nobles: Seq[Noble],
-  players: Seq[UUID], currentPlayerId: UUID, winner: Option[UUID])
+  opponents: Seq[OpponentView], player: Player, currentPlayerId: UUID, winner: Option[UUID])
 
 object JsonImplicits {
   implicit val colorKeyDecoder: KeyDecoder[Color] = new KeyDecoder[Color] {
@@ -208,8 +221,8 @@ trait GameMasterService extends CirceSupport with Service {
               case Right(action) => if (game.currentPlayerId == user.id) {
                 game.playTurn(action) match {
                   case Left(ge) => Left(ge.toString)
-                  case Right(GameBeingPlayed(g)) => Right(dao.updateGame(gw.copy(g=g)).view)
-                  case Right(GameWon(p, g)) => Right(dao.updateGame(gw.copy(g=g, winner=Some(p.id))).view)
+                  case Right(GameBeingPlayed(g)) => Right(dao.updateGame(gw.copy(g=g)).view(user.id))
+                  case Right(GameWon(p, g)) => Right(dao.updateGame(gw.copy(g=g, winner=Some(p.id))).view(user.id))
                 }
               } else {
                 Left(s"Out of order play (current player is ${game.currentPlayerId})")
@@ -230,7 +243,7 @@ trait GameMasterService extends CirceSupport with Service {
         complete {
           val games = dao.games
             .filter(_.g.players.map(_.id).contains(user.id))
-            .map(_.view)
+            .map(_.view(user.id))
             .toList
 
           Map("games" -> games)
@@ -244,7 +257,7 @@ trait GameMasterService extends CirceSupport with Service {
             case None => HttpResponse(StatusCodes.NotFound)
             case Some(pendingGame) => {
               dao.startGame(pendingGame) match {
-                case Right(gw) => gw.view
+                case Right(gw) => gw.view(user.id)
                 case Left(ge) => HttpResponse(StatusCodes.BadRequest, entity = ge.toString)
               }
             }

@@ -203,6 +203,8 @@ package object game {
 
       val goldTokens = p.tokens.getOrElse(Gold, 0)
 
+      println(s"CAB: $costAfterBonus GAT: $gameTokensAfterCost PTAC: $playerTokensAfterCost)
+
       if (goldTokens >= additionalTokens) {
         val goldTokensRequired: TokenSet = Map(Gold -> additionalTokens)
         val playerTokensAfterGolds = playerTokensAfterCost.mapValues(c => Math.max(0, c)) |-| goldTokensRequired

@@ -63,7 +63,7 @@
                   (empty?
                    (filter (fn [[a-color v]]
                              (= v 2))
-                           (get-in @model [:active-game :tokens]))))
+                           (get action :tokens))))
         contains-color? (set (map first (filter (comp pos? second) (get action :tokens))))
         n-tokens-in-action (reduce + 0 (vals (get action :tokens)))
         n-tokens-in-action-in-color (get-in action [:tokens color] 0)]
@@ -93,11 +93,16 @@
     (when (and game-id action)
       (api/send-action! game-id action))))
 
+(defn update-user [{:keys [user-id]}]
+  (swap! model assoc-in [:user-state :id] user-id)
+  (api/init!))
+
 (def event-map {:select-token select-token
                 :reset-action reset-action
                 :select-face-up-card select-face-up-card
                 :select-face-down-card select-face-down-card
-                :play execute-action})
+                :play execute-action
+                :update-user update-user})
 
 (defn listen-for-events! [event-map]
   (let [event-chan (chan 3000)]

@@ -47,8 +47,8 @@
     [:div.points points]]
    (render-cost {} cost)])
 
-(defn render-tokens [events tokens]
-  [:div.tokens "Tokens"
+(defn render-tokens [events title tokens]
+  [:div.tokens title
    (render-cost events tokens)])
 
 (defn token-action [tokens]
@@ -85,9 +85,12 @@
 ;;TODO: Players should show face up cards they have
 
 (defn game-view [error-cursor user-cursor game-cursor action-cursor event-chan]
-  (let [{:keys [tokens decks nobles players currentPlayerId]} @game-cursor
+  (let [{:keys [tokens decks nobles player opponents currentPlayerId]} @game-cursor
 
         our-turn? (= currentPlayerId (:id @user-cursor))
+        user-id (:id @user-cursor)
+
+        my-tokens (:tokens player)
 
         card-click-handler (fn [card]
                              (put! event-chan {:type :select-face-up-card
@@ -106,13 +109,23 @@
 
         play-handler (fn [] (put! event-chan {:type :play}))
 
-        reset-handler (fn [] (put! event-chan {:type :reset-action}))]
+        reset-handler (fn [] (put! event-chan {:type :reset-action}))
+
+        update-user-handler (fn [evt]
+                              (put! event-chan {:type :update-user
+                                                :user-id (-> evt .-target .-value)}))]
     [:div
+     [:div.user
+      [:select {:value user-id
+                :on-change update-user-handler}
+       [:option {:value "00000000-0000-0000-0000-000000000001"} "User 1"]
+       [:option {:value "00000000-0000-0000-0000-000000000002"} "User 2"]]]
      (when-let [error @error-cursor]
        [:div.error error])
      [:div.game
       (render-tokens
        {:on-click tokens-selected-handler}
+       "Tokens"
        tokens)
       (concatv [:div.cards
                 (map-indexed render-noble nobles)])
@@ -142,4 +155,8 @@
            {:on-reset reset-handler
             :on-play play-handler}
            @action-cursor)
-          [:div "Waiting for player " currentPlayerId])]]]]))
+          [:div "Waiting for player " currentPlayerId])]]
+      (render-tokens
+       {}
+       "My Tokens"
+       my-tokens)]]))
